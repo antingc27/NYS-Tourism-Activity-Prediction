@@ -1,0 +1,293 @@
+---
+title: "Economic_Impact_Prediction"
+author: "ILNY_Group"
+date: "6/14/2019"
+output: html_document
+---
+
+# import required packages
+```{r}
+library(ggplot2)
+library(quantmod)
+library(xts)
+library(zoo)
+library(forecast)
+library(fpp)
+library(fpp2)
+library(dplyr)
+library(ggthemes)
+library(caret)
+library(lattice)
+```
+
+
+# import  dataset
+```{r}
+library(readxl)
+
+pre =NYS_predict
+pre = na.omit(NYS_predict)
+str(pre)
+```
+
+
+# create time series data
+### create New York state's hotel occ% time series data
+```{r}
+OCC_ts = ts(data=pre[[2]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+```{r}
+OCC_ts
+```
+
+### create New York state's hotel Room_Count time series data
+```{r}
+RoomCount_ts = ts(data=pre[[3]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel RevPAR time series data
+```{r}
+RevPAR_ts = ts(data=pre[[4]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel Room_Sold time series data
+```{r}
+RoomSold_ts = ts(data=pre[[5]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel ADR time series data
+```{r}
+ADR_ts = ts(data=pre[[6]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel Room_Revenue time series data
+```{r}
+RoomRev_ts = ts(data=pre[[7]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's Monthly_Visiation time series data
+```{r}
+visit_ts = ts(data=data[[9]], start=c(2014, 1), end=c(2018, 12), frequency = 12)
+```
+### create New York state's Monthly_Spending time series data
+```{r}
+spend_ts = ts(data=data[[10]], start=c(2014, 1), end=c(2018, 12), frequency = 12)
+```
+
+
+# trend and seasonality analysis
+### OCC
+```{r}
+OCC_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### Room_Count
+```{r}
+RoomCount_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### RevPAR
+```{r}
+RevPAR_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### Room_Sold
+```{r}
+RoomSold_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### ADR
+```{r}
+ADR_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### Room_Revenue
+```{r}
+RoomRev_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+
+
+# prediction (time series analysis)
+### predict OCC
+```{r}
+model_auto_OCC = auto.arima(y = OCC_ts, stepwise = F,approximation = F)
+model_auto_forecas_OCC = forecast(model_auto_OCC,h=6)
+model_auto_forecas_OCC
+autoplot(model_auto_forecas_OCC,PI=F)
+```
+```{r}
+class(model_auto_forecas_OCC)
+```
+
+
+### predict Room_Count
+```{r}
+model_auto_RoomCount = auto.arima(y = RoomCount_ts, stepwise = F,approximation = F)
+model_auto_forecas_RoomCount = forecast(model_auto_RoomCount,h=6)
+model_auto_forecas_RoomCount
+autoplot(model_auto_forecas_RoomCount,PI=F)
+```
+### predict RevPAR
+```{r}
+model_auto_RevPAR = auto.arima(y = RevPAR_ts, stepwise = F,approximation = F)
+model_auto_forecas_RevPAR = forecast(model_auto_RevPAR,h=6)
+model_auto_forecas_RevPAR
+autoplot(model_auto_forecas_RevPAR,PI=F)
+```
+### predict Room_Sold
+```{r}
+model_auto_RoomSold = auto.arima(y = RoomSold_ts, stepwise = F,approximation = F)
+model_auto_forecas_RoomSold = forecast(model_auto_RoomSold,h=6)
+model_auto_forecas_RoomSold
+autoplot(model_auto_forecas_RoomSold,PI=F)
+```
+### predict ADR
+```{r}
+model_auto_ADR = auto.arima(y = ADR_ts, stepwise = F,approximation = F)
+model_auto_forecas_ADR = forecast(model_auto_ADR,h=6)
+model_auto_forecas_ADR
+autoplot(model_auto_forecas_ADR,PI=F)
+```
+### predict Room_Revenue
+```{r}
+model_auto_RoomRev = auto.arima(y = RoomRev_ts, stepwise = F,approximation = F)
+model_auto_forecas_RoomRev = forecast(model_auto_RoomRev,h=6)
+model_auto_forecas_RoomRev
+autoplot(model_auto_forecas_RoomRev,PI=F)
+```
+```{r}
+model_auto_Visitation = auto.arima(y = visit_ts, stepwise = F,approximation = F)
+model_auto_forecas_Visitation = forecast(model_auto_Visitation,h=6)
+model_auto_forecas_Visitation
+```
+```{r}
+model_auto_Spend = auto.arima(y = spend_ts, stepwise = F,approximation = F)
+model_auto_forecas_Spend = forecast(model_auto_Spend,h=6)
+model_auto_forecas_Spend
+```
+
+
+# identify target variables
+### scatter plot 1: Monthly_Visitation V.S. Monthly_Spending
+```{r}
+ggplot(data=data, aes(x= Monthly_Visitation, y=Monthly_Spending))+geom_point()+geom_smooth()
+```
+### scatter plot 2: Monthly_Visiation V.S. Room_Revenue
+```{r}
+ggplot(data=data, aes(x= Room_Revenue, y= Monthly_Visitation))+geom_point()+geom_smooth()
+```
+### scatter plot 3: Monthly_Visiation V.S. Room_Sold
+```{r}
+ggplot(data=data, aes(x= Room_Sold, y= Monthly_Visitation))+geom_point()+geom_smooth()
+```
+### scatter plot 4: Monthly_Spending V.S. Room_Sold
+```{r}
+ggplot(data=data, aes(x= Room_Sold, y=Monthly_Spending))+geom_point()+geom_smooth()
+```
+### scatter plot 5: Monthly_Spending V.S. Room_Revenue
+```{r}
+ggplot(data=data, aes(x= Room_Revenue, y=Monthly_Spending))+geom_point()+geom_smooth()
+```
+
+
+# prediction(linear regression anlysis)
+### Split Data
+```{r}
+visitation=data %>% select(Monthly_Visitation,Room_Sold,ADR,Room_Count,RevPAR,Room_Revenue,OCC)
+spending=data %>% select(Monthly_Spending,Room_Sold,ADR,Room_Count,RevPAR,Room_Revenue,OCC)
+
+set.seed(1706)
+split_1 = createDataPartition(y=visitation$Monthly_Visitation,p = 0.7,list = F,groups = 10)
+train_visit = visitation[split_1,]
+test_visit = visitation[-split_1,]
+
+split_2 = createDataPartition(y=spending$Monthly_Spending ,p = 0.7,list = F,groups = 10)
+train_spend = spending[split_2,]
+test_spend = spending[-split_2,]
+```
+### Linear Regression- visitation (monthly)
+```{r}
+lm_visit = lm(Monthly_Visitation~.,train_visit)
+predLm_visit = predict(lm_visit,newdata=test_visit)
+RMSELm_visit = sqrt(mean((predLm_visit - test_visit$Monthly_Visitation)^2))
+RMSELm_visit
+```
+### Linear Regression-spending (monthly)
+```{r}
+lm_spend = lm(Monthly_Spending~.,train_spend)
+predLm_spend = predict(lm_spend,newdata=test_spend)
+RMSELm_spend = sqrt(mean((predLm_spend - test_spend$Monthly_Spending)^2))
+RMSELm_spend
+```
+### Insert New Dataset (Prediction)
+```{r}
+preData = Prediction.New.Dataset.for.Spending.and.Visitation
+```
+### Predict
+```{r}
+Prelm_spend_new = predict(lm_spend, newdata = preData)
+Prelm_spend_new
+```
+```{r}
+Prelm_visitation_new = predict(lm_visit, newdata = preData)
+Prelm_visitation_new
+```
+
+```{r}
+wholetable=cbind(preData,Prelm_spend_new,Prelm_visitation_new)
+wholetable
+```
+### Plot (!!!The Month is Not Right)
+```{r}
+pre_spend_ts = ts(data=wholetable$Prelm_spend_new, start=c(2019, 5), end=c(2019, 10), frequency = 12)
+pre_visitation_ts = ts(data=wholetable$Prelm_visitation_new, start=c(2019, 5), end=c(2019, 10), frequency = 12)
+autoplot(pre_spend_ts)
+autoplot(pre_visitation_ts)
+```
+
+
+# prediction(linear regression anlysis)
+### Split Data
+```{r}
+train_v = window(visit_ts,end=c(2017,09))
+test_v = window(visit_ts, start=c(2017,10))
+
+train_s = window(spend_ts,end=c(2017,09))
+test_s = window(spend_ts, start=c(2017,10))
+```
+### time series model(visitation)
+```{r}
+model_auto_v = auto.arima(y = train_v, stepwise = F,approximation = F)
+model_auto_forecast_v = forecast(model_auto_v,h=15)
+```
+### time series model(spending)
+```{r}
+model_auto_s = auto.arima(y = train_s, stepwise = F,approximation = F)
+model_auto_forecast_s = forecast(model_auto_s,h=15)
+```
+### check accuracy
+```{r}
+print("accuracy of Monthly_Visitation's prediction")
+accuracy(model_auto_forecast_v,x=test_v)
+
+print("accuracy of Monthly_Spending's prediction")
+accuracy(model_auto_forecast_s,x=test_s)
+```
+
+### New Dataset with prediction data
+
+```{r}
+write.csv(newdataset_prediction)
+```
+
+# export cleaned data
+```{r}
+write.csv(model_auto_forecas_RoomSold,'D:\\OneDrive\\Documents\\CU\\2019Summer\\5900_Capstone\\TimeSeriesAnalysis\\Predicted data\\predicted_RoomSold.csv', row.names = F )
+write.csv(model_auto_forecas_OCC,'D:\\OneDrive\\Documents\\CU\\2019Summer\\5900_Capstone\\TimeSeriesAnalysis\\Predicted data\\predicted_OCC.csv', row.names = F )
+write.csv(model_auto_forecas_RoomRev,'D:\\OneDrive\\Documents\\CU\\2019Summer\\5900_Capstone\\TimeSeriesAnalysis\\Predicted data\\predicted_RoomRev.csv', row.names = F )
+write.csv(model_auto_forecas_ADR,'D:\\OneDrive\\Documents\\CU\\2019Summer\\5900_Capstone\\TimeSeriesAnalysis\\Predicted data\\predicted_ADR.csv', row.names = F )
+write.csv(model_auto_forecas_RevPAR,'D:\\OneDrive\\Documents\\CU\\2019Summer\\5900_Capstone\\TimeSeriesAnalysis\\Predicted data\\predicted_RevPAR.csv', row.names = F )
+write.csv(model_auto_forecas_RoomCount ,'D:\\OneDrive\\Documents\\CU\\2019Summer\\5900_Capstone\\TimeSeriesAnalysis\\Predicted data\\predicted_RoomCount.csv', row.names = F )
+```

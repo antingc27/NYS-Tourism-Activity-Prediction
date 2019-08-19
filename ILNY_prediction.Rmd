@@ -1,0 +1,97 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+install.packages('ISLR');
+install.packages('ggplot2'); 
+install.packages('caret'); 
+install.packages('caTools'); 
+install.packages('stringr'); 
+install.packages('plyr'); 
+install.packages('gbm')
+
+library(lattice)
+library(caret)
+library(ggplot2)
+library(lattice)
+library(caTools)
+library(stringr)
+library(plyr)
+library(gbm)
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+setwd("/Users/antingc/Documents/")
+train = read.csv('ILNY_AnalyticalTool_Data2017.csv') #data before 2017
+test = read.csv('ILNY_AnalyticalTool_Data2018.csv') #known data of 2018
+data = read.csv('ILNY_AnalyticalTool_Data_.csv') #actual data of 2018
+nrow(train)
+str(train)
+colnames(train)
+nrow(data)
+```
+```{r}
+#Predict Monthly Visitation 
+model1=lm(MonVisit~OCC+RoomCount+RevPAR+RoomSold+ADR+RoomRev+Percent,train)
+pred1=predict(model1,newdata=test)
+rmse1=sqrt(mean((model1$residuals)^2));rmse1
+accuracy(model1)
+
+pred_Monvisit = data.frame(Date = test$Date, MonVisit = pred1)
+nrow(pred_Monvisit)
+pred_Monvisit
+```
+```{r}
+Monvisit=data.frame(Date= data$Date, MonVisit= data$MonVisit);Monvisit
+
+```
+```{r}
+cor(as.numeric(pred_Monvisit[,"MonVisit"]),as.numeric(Monvisit[,"MonVisit"]))
+```
+```{r}
+Monvisit$MonVisit<- as.numeric(Monvisit$MonVisit)
+Monvisit$Date<- as.factor(Monvisit$Date)
+#plot(Monvisit$MonVisit)
+plot(Monvisit$MonVisit, type="b", col="green", lwd=3, xlab="month", ylab="Monthly Visitation")
+lines(pred_Monvisit$MonVisit , type='b', col="blue", lwd=3)
+title("2018 Actual VS Predicted Monthly Visit")
+legend(1,26,c("actual","predict"), lwd=c(3,3), col=c("green","blue"))
+```
+```{r}
+#Predict Monthly Spending
+model2=lm(MonSpend~OCC+RoomCount+RevPAR+RoomSold+ADR+RoomRev+Percent,train)
+pred2=predict(model2,newdata=test)
+rmse2=sqrt(mean((model2$residuals)^2));rmse2
+accuracy(model2)
+
+pred_Monspend = data.frame(Date = test$Date, MonSpend = pred2)
+nrow(pred_Monvisit)
+pred_Monspend
+```
+```{r}
+Monspend=data.frame(Date= data$Date, MonSpend= data$MonSpend);Monspend
+```
+```{r}
+cor(as.numeric(pred_Monspend[,"MonSpend"]),as.numeric(Monspend[,"MonSpend"]))
+```
+```{r}
+Monspend$MonSpend<- as.numeric(Monspend$MonSpend)
+Monspend$Date<- as.factor(Monspend$Date)
+plot(Monspend$MonSpend, type="b", col="green", lwd=3, xlab="month", ylab="Monthly Visitation")
+lines(pred_Monspend$MonSpend , type='b', col="blue", lwd=3)
+title("2018 Actual VS Predicted Monthly Spending")
+legend(1,12,c("actual","predict"), lwd=c(3,3), col=c("green","blue"))
+```
+

@@ -1,0 +1,152 @@
+---
+title: "TimeSeries_NYC"
+author: "ILNY_Group"
+date: "6/14/2019"
+output: html_document
+---
+
+# import required packages
+```{r}
+library(ggplot2)
+library(quantmod)
+library(xts)
+library(zoo)
+library(forecast)
+library(fpp)
+library(fpp2)
+library(dplyr)
+library(ggthemes)
+library(caret)
+library(lattice)
+```
+
+
+# import  dataset
+```{r}
+library(readxl)
+pre <- read.csv("D:/OneDrive/Documents/CU/2019Summer/5900_Capstone/TimeSeriesAnalysis/Data/NYC_predict.csv")
+data=pre
+data = na.omit(pre)
+str(data)
+```
+
+
+# create time series data
+### create New York state's hotel occ% time series data
+```{r}
+OCC_ts = ts(data=pre[[2]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel Room_Count time series data
+```{r}
+RoomCount_ts = ts(data=pre[[3]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel RevPAR time series data
+```{r}
+RevPAR_ts = ts(data=pre[[4]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel Room_Sold time series data
+```{r}
+RoomSold_ts = ts(data=pre[[5]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel ADR time series data
+```{r}
+ADR_ts = ts(data=pre[[6]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's hotel Room_Revenue time series data
+```{r}
+RoomRev_ts = ts(data=pre[[7]], start=c(2014, 1), end=c(2019, 4), frequency = 12)
+```
+### create New York state's Monthly_Visiation time series data
+```{r}
+visit_ts = ts(data=data[[9]], start=c(2014, 1), end=c(2018, 12), frequency = 12)
+```
+### create New York state's Monthly_Spending time series data
+```{r}
+spend_ts = ts(data=data[[10]], start=c(2014, 1), end=c(2018, 12), frequency = 12)
+```
+
+
+# trend and seasonality analysis
+### OCC
+```{r}
+OCC_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### Room_Count
+```{r}
+RoomCount_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### RevPAR
+```{r}
+RevPAR_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### Room_Sold
+```{r}
+RoomSold_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### ADR
+```{r}
+ADR_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+### Room_Revenue
+```{r}
+RoomRev_ts%>%
+  stl(s.window = 'periodic')%>%
+  autoplot()
+```
+
+
+# prediction (time series analysis)
+### predict OCC
+```{r}
+model_auto_OCC = auto.arima(y = OCC_ts, stepwise = F,approximation = F)
+model_auto_forecas_OCC = forecast(model_auto_OCC,h=6)
+model_auto_forecas_OCC
+autoplot(model_auto_forecas_OCC,PI=F)
+```
+### predict Room_Count
+```{r}
+model_auto_RoomCount = auto.arima(y = RoomCount_ts, stepwise = F,approximation = F)
+model_auto_forecas_RoomCount = forecast(model_auto_RoomCount,h=6)
+model_auto_forecas_RoomCount
+autoplot(model_auto_forecas_RoomCount,PI=F)
+```
+### predict RevPAR
+```{r}
+model_auto_RevPAR = auto.arima(y = RevPAR_ts, stepwise = F,approximation = F)
+model_auto_forecas_RevPAR = forecast(model_auto_RevPAR,h=6)
+model_auto_forecas_RevPAR
+autoplot(model_auto_forecas_RevPAR,PI=F)
+```
+### predict Room_Sold
+```{r}
+model_auto_RoomSold = auto.arima(y = RoomSold_ts, stepwise = F,approximation = F)
+model_auto_forecas_RoomSold = forecast(model_auto_RoomSold,h=6)
+model_auto_forecas_RoomSold
+autoplot(model_auto_forecas_RoomSold,PI=F)
+```
+### predict ADR
+```{r}
+model_auto_ADR = auto.arima(y = ADR_ts, stepwise = F,approximation = F)
+model_auto_forecas_ADR = forecast(model_auto_ADR,h=6)
+model_auto_forecas_ADR
+autoplot(model_auto_forecas_ADR,PI=F)
+```
+### predict Room_Revenue
+```{r}
+model_auto_RoomRev = auto.arima(y = RoomRev_ts, stepwise = F,approximation = F)
+model_auto_forecas_RoomRev = forecast(model_auto_RoomRev,h=6)
+model_auto_forecas_RoomRev
+autoplot(model_auto_forecas_RoomRev,PI=F)
+```
+
+
