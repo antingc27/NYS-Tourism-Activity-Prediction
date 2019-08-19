@@ -1,0 +1,667 @@
+---
+title: "PoC Design_By ZhemingCui"
+author: "ILNY_Group"
+date: "6/25/2019"
+output: html_document
+---
+
+```{r}
+# Load data
+install.packages('shinythemes')
+install.packages('shiny')
+library(shiny)
+library(shinythemes)
+library(dplyr)
+library(readr)
+library("plyr") 
+library(ggplot2)
+library(quantmod)
+library(xts)
+library(zoo)
+library(forecast)
+library(fpp)
+library(fpp2)
+library(dplyr)
+library(ggthemes)
+library(caret)
+library(lattice)
+
+ui <- fluidPage(theme = shinytheme("lumen"),
+  titlePanel('ILNY Analytical Tool'),
+  sidebarLayout(
+    sidebarPanel(
+      
+       # Input: Select a file ----
+      fileInput("file1", "Choose CSV File",
+                multiple = FALSE,
+                accept = c("text/csv",
+                         "text/comma-separated-values,text/plain",
+                         ".csv")),
+
+      # Horizontal line ----
+      tags$hr(),
+
+      # Input: Select number of rows to display ----
+      radioButtons("disp", "Select Number of Rows to Display",
+                   choices = c(Head = "head",
+                               All = "all"),
+                   selected = "head"), # radioButtons end
+      
+        # Horizontal line ----
+      tags$hr(),
+      
+      # Select type of trend to plot
+      selectInput(inputId = "type", label = strong("Hotel KPI Selection"),
+                  choices = c('OCC','ADR','RoomSold','RoomCount','RoomRev','RevPAR'),
+                  selected = "OCC"), #  selectInput end
+      
+      # Horizontal line ----
+      tags$hr(),
+
+      # Select date range to be plotted
+      dateRangeInput("date", strong("Hotel Activities & Economic Impact Prediction Date Range"), 
+                     start = "2018-01-01", 
+                     end = "2019-12-31"), # dateRangeInput end
+      
+      # Horizontal line ----
+      tags$hr(),
+
+      # Select whether to overlay smooth trend line
+      checkboxInput(inputId = "smoother", 
+                    label = strong("Overlay Smooth Trend Line"), 
+                    value = TRUE), # checkboxInput end
+      
+      # Display only if the smoother is checked
+      conditionalPanel(condition = "input.smoother == true",
+                       sliderInput(inputId = "f", label = "Smoother Span:",
+                                   min = 0.01, max = 1, value = 0.34, step = 0.01,
+                                   animate = animationOptions(interval = 100)),
+                       HTML("Higher values give more smoothness.")
+      ), # conditionalPanel end
+      
+      # Horizontal line ----
+      tags$hr(),
+      
+      radioButtons("model", "How Do You Want to Predict the Economic Impact?",
+                   choices = c("Predict future 12 months' total visitors & economic impact" = "Future",
+                               "Predict current periods' total visitors & economic impact" = "Current"),
+                   selected = "Future"), # radioButtons end
+      
+      helpText("* Prediction of future 12 months' total visitors & economic impact is based on historical data of 'economic impact' and 'total visitors'"),
+      helpText("* Prediction of current periods' total visitors & economic impact is based on all currently avaliable data, including hotel variables and all other chosen variables")
+      
+     ), # conditionalPanel end
+    
+    # Output: Description, lineplot, and reference
+    mainPanel(
+      tabsetPanel(type = "tabs",
+                  tabPanel("Hote KPIs Prediction",
+                           h4("Hotel Activities Plot"),
+                           tags$hr(),
+                           plotOutput("KPIPlot", height = "300px"),
+                           tags$hr(),
+                           h4("Hotel KPIs Predictive Model Accuracy"),
+                           tags$hr(),
+                           verbatimTextOutput("KPIsAccuracy"),
+                           tags$hr(),
+                           h4("Hotel Activities Summary"),
+                           tags$hr(), 
+                           verbatimTextOutput("selected_trends_Summary"),
+                           tags$hr(),
+                           h4("Hotel Activities Prediction Table"),
+                           tags$hr(), 
+                           dataTableOutput("selected_trends_contents")),
+                          
+                  tabPanel("Total Visitors Prediction",
+                           h4("Monthly Visitation Plot"),
+                           tags$hr(),
+                           plotOutput("visit", height = "300px"),
+                           tags$hr(), 
+                           h4("Total Visitors Predictive Model Accuracy"),
+                           tags$hr(),
+                           verbatimTextOutput("visitAccuracy"),
+                           tags$hr(),
+                           h4("Predicted Total Visitors (millions) Between Selected Dates"),
+                           verbatimTextOutput("visitSum"),
+                           textOutput("visitDiff"),
+                           tags$hr(),
+                           h4("Monthly Visitors (millions) Summary"),
+                           tags$hr(),
+                           verbatimTextOutput("visitSummary"), 
+                           tags$hr(), 
+                           h4("Monthly Visitors (millions) Prediction Table"),
+                           tags$hr(), 
+                           dataTableOutput("visitTable")
+                           ),
+                  
+                  tabPanel("Total Economic Impact Prediction",
+                           h4("Monthly Economic Impact (billions) Plot"),
+                           tags$hr(),
+                           plotOutput("spend", height = "300px"),
+                           tags$hr(),
+                           h4("Total Economic Impact Predictive Model Accuracy"),
+                           tags$hr(),
+                           verbatimTextOutput("spendAccuracy"),
+                           tags$hr(),
+                           h4("Predicted Total Economic Impact (billions) Between Selected Dates"),
+                           verbatimTextOutput("spendSum"),
+                           textOutput("spendDiff"),
+                           tags$hr(),
+                           h4("Monthly Economic Impact (billions) Summary"), 
+                           tags$hr(),
+                           verbatimTextOutput("spendSummary"),
+                           tags$hr(),
+                           h4("Monthly Economic Impact (billions) Prediction Table"),
+                           tags$hr(),
+                           dataTableOutput("spendTable")
+                           )
+                  ) # tabsetPanel end
+      ) #  mainPanel end
+  ) # sidebarLayout end
+) # fluidPage end
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+server <- function(input, output) {
+  
+  # upload file
+  file1<- reactive({
+    req(input$file1)
+    read_csv(input$file1$datapath)
+    }) # file1 end
+
+   # create new predicted hotel activities
+     Predict_data <- reactive({
+       pre<- file1()%>%select(-c('MonVisit','MonSpend','Percent'))
+       pre<- pre[,colSums(is.na(pre))==0]
+       # Hotel activities Arima model
+       withProgress(message = 'Training Models', value = 0,{
+         incProgress(1/6, detail = paste("Predicting OCC"))
+         model_auto_OCC = auto.arima(y = pre['OCC']%>%ts(start=c(2014, 1), frequency = 12), stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Predicting ADR"))
+         model_auto_ADR = auto.arima(y = pre['ADR']%>%ts(start=c(2014, 1), frequency = 12), stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Predicting RevPAR"))
+         model_auto_RevPAR = auto.arima(y = pre['RevPAR']%>%ts(start=c(2014, 1), frequency = 12), stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Predicting RoomCount"))
+         model_auto_RoomCount = auto.arima(y = pre['RoomCount']%>%ts(start=c(2014, 1), frequency = 12), stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Predicting RoomSold"))
+         model_auto_RoomSold = auto.arima(y = pre['RoomSold']%>%ts(start=c(2014, 1), frequency = 12), stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Predicting RoomRev"))
+         model_auto_RoomRev = auto.arima(y = pre['RoomRev']%>%ts(start=c(2014, 1), frequency = 12), stepwise = F,approximation = F)
+
+         })
+         
+         # Hotel activities future prediction
+         model_auto_forecas_RevPAR = forecast(model_auto_RevPAR,h=12)
+         model_auto_forecas_RoomSold = forecast(model_auto_RoomSold,h=12)
+         model_auto_forecas_RoomCount = forecast(model_auto_RoomCount,h=12)
+         model_auto_forecas_ADR = forecast(model_auto_ADR,h=12)
+         model_auto_forecas_OCC = forecast(model_auto_OCC,h=12)
+         model_auto_forecas_RoomRev = forecast(model_auto_RoomRev,h=12)
+         
+         # create new dataset
+         pred_OCC=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecas_OCC$mean))),OCC=as.matrix(model_auto_forecas_OCC$mean))
+         pred_ADR=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecas_ADR$mean))),ADR=as.matrix(model_auto_forecas_ADR$mean))
+         pred_RevPAR=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecas_RevPAR$mean))),RevPAR=as.matrix(model_auto_forecas_RevPAR$mean))
+         pred_RoomSold=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecas_RoomSold$mean))),RoomSold=as.matrix(model_auto_forecas_RoomSold$mean))
+         pred_RoomCount=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecas_RoomCount$mean))),RoomCount=as.matrix(model_auto_forecas_RoomCount$mean))
+         pred_RoomRev=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecas_RoomRev$mean))),RoomRev=as.matrix(model_auto_forecas_RoomRev$mean))
+         Newdata= rbind.fill(pre, cbind(pred_OCC,pred_ADR,pred_RevPAR,pred_RoomSold,pred_RoomCount,pred_RoomRev))
+     })
+    
+  # Subset data
+  selected_trends <- reactive({
+    req(input$date)
+    validate(need(!is.na(input$date[1]) & !is.na(input$date[2]), "Error: Please provide both a start and an end date."))
+    validate(need(input$date[1] < input$date[2], "Error: Start date should be earlier than end date."))
+    Predict_data() %>%
+      filter(
+        Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]
+        )) 
+    }) # selected_trends end
+  
+    # print out table and summary
+    output$selected_trends_contents <- renderDataTable({
+      if(input$disp == "head") {
+      return(head(selected_trends()))
+    }
+    else {
+      return(selected_trends())} 
+      }) # output$Predict_data_contents end
+    
+    output$selected_trends_Summary<-  renderPrint({summary(selected_trends())}) # output$Predict_data_Summary end
+  
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+    
+  # predict future visit
+  MonVisit<-  reactive({
+    data<- file1()%>% select(-c('Date','Percent','MonSpend','MonVisit'))
+    visitation=data[,colSums(is.na(data))==0] %>%cbind(file1()[,c('MonVisit')])%>%na.omit()
+    set.seed(1706)
+    split_1 = createDataPartition(y=visitation$MonVisit,p = 0.7,list = F,groups = 12)
+    train_visit = visitation[split_1,]
+    test_visit = visitation[-split_1,]
+    lm_visit = lm(MonVisit~.,train_visit)
+    req(input$date)
+    validate(need(!is.na(input$date[1]) & !is.na(input$date[2]), "Error: Please provide both a start and an end date."))
+    validate(need(input$date[1] < input$date[2], "Error: Start date should be earlier than end date."))
+    
+    new_data <- file1()[rowSums(is.na(file1())) > 0,]
+    data1 <- new_data%>%select(-c('Date','Percent','MonVisit','MonSpend'))
+    pred_lm_visit <- predict(lm_visit,newdata=data1[,colSums(is.na(data1))==0])
+    pre_data<- data.frame('Date'= new_data%>%select(c(Date)), 'MonVisit'=pred_lm_visit)
+    data.frame('Date'= rbind.fill(na.omit(file1()),pre_data)%>%filter(Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]))%>%select(c('Date')), 'MonVisit'=rbind.fill(na.omit(file1()),pre_data)%>%filter(Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]))%>%select(c('MonVisit')))
+    
+  })
+  
+  MonVisit2<-  reactive({
+    data1<- na.omit(file1())
+    withProgress(message = 'Training Models', value = 0,{
+    incProgress(1/2, detail = paste("Calculating Model Accuracy"))
+    model_auto_v = auto.arima(y = ts(data=data1['MonVisit'], start=c(2014, 1), frequency = 12), stepwise = F, approximation = F)
+    incProgress(1/2, detail = paste("Finished"))
+    Sys.sleep(0.5)
+    })
+    model_auto_forecast_v = forecast(model_auto_v,h=12)
+    pred_visit=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_v$mean))), MonVisit=as.matrix(model_auto_forecast_v$mean))
+    dat= rbind.fill(data1 %>% select(c('Date','MonVisit')),pred_visit)
+    data.frame('Date'= dat%>%select(c(Date)), 'MonVisit'=dat%>%select(c(MonVisit)))
+  })
+  
+  MonVisit2_data<- reactive({
+    req(input$date)
+    req(input$date)
+    validate(need(!is.na(input$date[1]) & !is.na(input$date[2]), "Error: Please provide both a start and an end date."))
+    validate(need(input$date[1] < input$date[2], "Error: Start date should be earlier than end date."))
+    MonVisit2()%>%filter(Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]))
+  })
+  
+
+  
+  # predict future spend
+  MonSpend<- reactive({
+    data<- file1()%>% select(-c('Date','Percent','MonSpend','MonVisit'))
+    Spending=data[,colSums(is.na(data))==0] %>%cbind(file1()[,c('MonSpend')])%>%na.omit()
+    set.seed(1706)
+    split_1 = createDataPartition(y=Spending$MonSpend,p = 0.7,list = F,groups = 12)
+    train_spend = Spending[split_1,]
+    test_spend = Spending[-split_1,]
+    lm_spend = lm(MonSpend~.,train_spend)
+    req(input$date)
+    validate(need(!is.na(input$date[1]) & !is.na(input$date[2]), "Error: Please provide both a start and an end date."))
+    validate(need(input$date[1] < input$date[2], "Error: Start date should be earlier than end date."))
+    new_data <- file1()[rowSums(is.na(file1())) > 0,]
+    data1 <- new_data%>%select(-c('Date','Percent','MonVisit','MonSpend'))
+    pred_lm_spend <- predict(lm_spend,newdata=data1[,colSums(is.na(data1))==0])
+    pre_data<- data.frame('Date'= new_data%>%select(c(Date)), 'MonSpend'=pred_lm_spend)
+    data.frame('Date'= rbind.fill(na.omit(file1()),pre_data)%>%filter(Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]))%>%select(c(Date)), 'MonSpend'=rbind.fill(na.omit(file1()),pre_data)%>%filter(Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]))%>%select(c('MonSpend')))
+  })
+  
+  MonSpend2<- reactive({
+    data1<- na.omit(file1())
+    withProgress(message = 'Training Models', value = 0,{
+    incProgress(1/2, detail = paste("Calculating Model Accuracy"))
+    model_auto_s = auto.arima(y = ts(data=data1['MonSpend'], start=c(2014, 1), frequency = 12), stepwise = F, approximation = F)
+    incProgress(1/2, detail = paste("Finished"))
+    Sys.sleep(0.5)
+    })
+    model_auto_forecast_s = forecast(model_auto_s,h=12)
+    pred_spend=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_s$mean))), MonSpend=as.matrix(model_auto_forecast_s$mean))
+    dat= rbind.fill(data1 %>% select(c('Date','MonSpend')),pred_spend)
+    data.frame('Date'= dat%>%select(c(Date)), 'MonSpend'=dat%>%select(c(MonSpend)))
+  })
+  
+  MonSpend2_data<- reactive({
+    req(input$date)
+    req(input$date)
+    validate(need(!is.na(input$date[1]) & !is.na(input$date[2]), "Error: Please provide both a start and an end date."))
+    validate(need(input$date[1] < input$date[2], "Error: Start date should be earlier than end date."))
+    MonSpend2()%>%filter(Date > as.POSIXct(input$date[1]) & Date < as.POSIXct(input$date[2]))
+  })
+  
+  
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+  HotelKPIAcc<- reactive({
+    data1<- file1() %>%filter(Date< '2019-01-01')
+    OCC_ts = ts(data=data1['OCC'], start=c(2014, 1), frequency = 12)
+    ADR_ts = ts(data=data1['ADR'], start=c(2014, 1), frequency = 12)
+    RevPAR_ts = ts(data=data1['RevPAR'], start=c(2014, 1), frequency = 12)
+    RoomSold_ts = ts(data=data1['RoomSold'], start=c(2014, 1), frequency = 12)
+    RoomCount_ts = ts(data=data1['RoomCount'], start=c(2014, 1), frequency = 12)
+    RoomRev_ts = ts(data=data1['RoomRev'], start=c(2014, 1), frequency = 12)
+    train_OCC = window(OCC_ts,end=c(2017,12))
+    test_OCC = window(OCC_ts, start=c(2018,01))
+    train_ADR = window(ADR_ts,end=c(2017,12))
+    test_ADR = window(ADR_ts, start=c(2018,01))
+    train_RevPAR = window(RevPAR_ts,end=c(2017,12))
+    test_RevPAR = window(RevPAR_ts, start=c(2018,01))
+    train_RoomSold = window(RoomSold_ts,end=c(2017,12))
+    test_RoomSold = window(RoomSold_ts, start=c(2018,01))
+    train_RoomCount = window(RoomCount_ts,end=c(2017,12))
+    test_RoomCount = window(RoomCount_ts, start=c(2018,01))
+    train_RoomRev = window(RoomRev_ts,end=c(2017,12))
+    test_RoomRev = window(RoomRev_ts, start=c(2018,01))
+    
+    withProgress(message = 'Models Accuracy', value = 0,{
+         incProgress(1/6, detail = paste("Calculating Accuracy-OCC"))
+         model_auto_OCC = auto.arima(y = train_OCC, stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Calculating Accuracy-ADR"))
+         model_auto_ADR = auto.arima(y = train_ADR, stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Calculating Accuracy-RevPAR"))
+         model_auto_RevPAR = auto.arima(y = train_RevPAR, stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Calculating Accuracy-RoomCount"))
+         model_auto_RoomCount = auto.arima(y = train_RoomCount, stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Calculating Accuracy-RoomSold"))
+         model_auto_RoomSold = auto.arima(y = train_RoomSold, stepwise = F,approximation = F)
+         incProgress(1/6, detail = paste("Calculating Accuracy-RoomRev"))
+         model_auto_RoomRev = auto.arima(y = train_RoomRev, stepwise = F,approximation = F)
+         })
+    model_auto_forecast_OCC = forecast(model_auto_OCC,h=12)
+    model_auto_forecast_ADR = forecast(model_auto_ADR,h=12)
+    model_auto_forecast_RevPAR = forecast(model_auto_RevPAR,h=12)
+    model_auto_forecast_RoomSold = forecast(model_auto_RoomSold,h=12)
+    model_auto_forecast_RoomCount = forecast(model_auto_RoomCount,h=12)
+    model_auto_forecast_RoomRev = forecast(model_auto_RoomRev,h=12)
+    
+    pred_OCC=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_OCC$mean))), OCC=as.matrix(model_auto_forecast_OCC$mean))
+    pred_ADR=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_ADR$mean))), ADR=as.matrix(model_auto_forecast_ADR$mean))
+    pred_RevPAR=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_RevPAR$mean))), RevPAR=as.matrix(model_auto_forecast_RevPAR$mean))
+    pred_RoomSold=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_RoomSold$mean))), RoomSold=as.matrix(model_auto_forecast_RoomSold$mean))
+    pred_RoomCount=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_RoomCount$mean))), RoomCount=as.matrix(model_auto_forecast_RoomCount$mean))
+    pred_RoomRev=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_RoomRev$mean))), RoomRev=as.matrix(model_auto_forecast_RoomRev$mean))
+    
+    test_OCC_table=data.frame(Date=as.Date(as.yearmon(time(test_OCC))), OCC=as.matrix(test_OCC))
+    test_ADR_table=data.frame(Date=as.Date(as.yearmon(time(test_ADR))), ADR=as.matrix(test_ADR))
+    test_RevPAR_table=data.frame(Date=as.Date(as.yearmon(time(test_RevPAR))), RevPAR=as.matrix(test_RevPAR))
+    test_RoomSold_table=data.frame(Date=as.Date(as.yearmon(time(test_RoomSold))), RoomSold=as.matrix(test_RoomSold))
+    test_RoomCount_table=data.frame(Date=as.Date(as.yearmon(time(test_RoomCount))), RoomCount=as.matrix(test_RoomCount))
+    test_RoomRev_table=data.frame(Date=as.Date(as.yearmon(time(test_RoomRev))), RoomRev=as.matrix(test_RoomRev))
+    
+    accuracy_OCC<- mean(sqrt((pred_OCC[['OCC']]-test_OCC_table[['OCC']])^2)/test_OCC_table[['OCC']])
+    accuracy_ADR<- mean(sqrt((pred_ADR[['ADR']]-test_ADR_table[['ADR']])^2)/test_ADR_table[['ADR']])
+    accuracy_RevPAR<- mean(sqrt((pred_RevPAR[['RevPAR']]-test_RevPAR_table[['RevPAR']])^2)/test_RevPAR_table[['RevPAR']])
+    accuracy_RoomSold<- mean(sqrt((pred_RoomSold[['RoomSold']]-test_RoomSold_table[['RoomSold']])^2)/test_RoomSold_table[['RoomSold']])
+    accuracy_RoomCount<- mean(sqrt((pred_RoomCount[['RoomCount']]-test_RoomCount_table[['RoomCount']])^2)/test_RoomCount_table[['RoomCount']])
+    accuracy_RoomRev<- mean(sqrt((pred_RoomRev[['RoomRev']]-test_RoomRev_table[['RoomRev']])^2)/test_RoomRev_table[['RoomRev']])
+    accuracy<- (accuracy_OCC+accuracy_ADR+accuracy_RevPAR+accuracy_RoomSold+accuracy_RoomCount+accuracy_RoomRev)/6
+    
+    paste("Hotel KPIs predictive model's accuracy is ",sprintf("%.1f %%", 100*(1-accuracy)), sep='')
+  })  
+  
+  
+  
+  visitAcc<- reactive({
+    data<- file1()%>% select(-c('Date','Percent','MonSpend','MonVisit'))
+    visitation=data[,colSums(is.na(data))==0] %>%cbind(file1()[,c('MonVisit')])%>%na.omit()
+    set.seed(1706)
+    split_1 = createDataPartition(y=visitation$MonVisit,p = 0.7,list = F,groups = 12)
+    train_visit = visitation[split_1,]
+    test_visit = visitation[-split_1,]
+    lm_visit = lm(MonVisit~.,train_visit)
+    predLm_visit = predict(lm_visit,newdata=test_visit)
+    mean(sqrt((predLm_visit - test_visit$MonVisit)^2)/test_visit$MonVisit)
+  })  
+  
+  visitAcc2<- reactive({
+    data1<- file1() %>%filter(Date< '2019-01-01')
+    visit_ts = ts(data=data1['MonVisit'], start=c(2014, 1), frequency = 12)
+    train_v = window(visit_ts,end=c(2017,12))
+    test_v = window(visit_ts, start=c(2018,01))
+    withProgress(message = 'Models Accuracy', value = 0,{
+    incProgress(1/2, detail = paste("Calculating Accuracy-Monthly Visitation"))
+    Sys.sleep(0.5)
+    model_auto_v = auto.arima(y = train_v, stepwise = F,approximation = F)
+    incProgress(1/2, detail = paste("Finished"))
+    Sys.sleep(0.5)
+    })
+    model_auto_forecast_v = forecast(model_auto_v,h=12)
+    pred_visit=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_v$mean))), MonVisit=as.matrix(model_auto_forecast_v$mean))
+    test_v_table=data.frame(Date=as.Date(as.yearmon(time(test_v))), MonVisit=as.matrix(test_v))
+    mean(sqrt((pred_visit[['MonVisit']]-test_v_table[['MonVisit']])^2)/test_v_table[['MonVisit']])
+  })  
+  
+  spendAcc<- reactive({
+    data<- file1()%>% select(-c('Date','Percent','MonSpend','MonVisit'))
+    Spending=data[,colSums(is.na(data))==0] %>%cbind(file1()[,c('MonSpend')])%>%na.omit()
+    set.seed(1706)
+    split_1 = createDataPartition(y=Spending$MonSpend,p = 0.7,list = F,groups = 12)
+    train_spend = Spending[split_1,]
+    test_spend = Spending[-split_1,]
+    lm_spend = lm(MonSpend~.,train_spend)
+    predLm_spend = predict(lm_spend,newdata=test_spend)
+    mean(sqrt((predLm_spend - test_spend$MonSpend)^2)/test_spend$MonSpend)
+    
+  })
+  
+   spendAcc2<- reactive({
+    data1<- file1() %>%filter(Date< '2019-01-01')
+    spend_ts = ts(data=data1['MonSpend'], start=c(2014, 1), frequency = 12)
+    train_s = window(spend_ts,end=c(2017,12))
+    test_s = window(spend_ts, start=c(2018,01))
+    withProgress(message = 'Models Accuracy', value = 0,{
+    incProgress(1/2, detail = paste("Calculating Accuracy-Monthly Economic Impact"))
+    model_auto_s = auto.arima(y = train_s, stepwise = F,approximation = F)
+    incProgress(1/2, detail = paste("Finished"))
+    Sys.sleep(0.5)
+    })
+    model_auto_forecast_s = forecast(model_auto_s,h=12)
+    pred_spend=data.frame(Date=as.Date(as.yearmon(time(model_auto_forecast_s$mean))), MonSpend=as.matrix(model_auto_forecast_s$mean))
+    test_s_table=data.frame(Date=as.Date(as.yearmon(time(test_s))), MonSpend=as.matrix(test_s))
+    mean(sqrt((pred_spend[['MonSpend']]-test_s_table[['MonSpend']])^2)/test_s_table[['MonSpend']])
+  })
+   
+  visitSum<-reactive({
+    req(input$date)
+    paste("Total visitors (millions) between ",input$date[1]," and ",input$date[2]," is ",format(sum(MonVisit()['MonVisit']), nsmall=1, big.mark=","),' Millions', sep='')
+    })
+  
+  spendSum<-reactive({
+    req(input$date)
+    paste("Total economic impact (billions) between ",input$date[1]," and ",input$date[2]," is ",sprintf("$ %3.2f", sum(MonSpend()['MonSpend'])),' Billions', sep='')
+  })
+  
+  visitSum2<-reactive({
+    req(input$date)
+    paste("Total visitors (millions) between ",input$date[1]," and ",input$date[2]," is ",format(sum(MonVisit2_data()['MonVisit']), nsmall=1, big.mark=","),' Millions', sep='')
+    })
+  
+  spendSum2<-reactive({
+    req(input$date)
+    paste("Total economic impact (billions) between ",input$date[1]," and ",input$date[2]," is ",sprintf("$ %3.2f", sum(MonSpend2_data()['MonSpend'])),' Billions', sep='')
+  })
+  
+  # print out table and summary
+   MonVisitTable<-  reactive(
+    if(input$disp == "head") {
+      return(head(MonVisit()))
+    }
+    else {
+      return(MonVisit())}) # output$MonVisit end
+  
+   MonVisitSummary<-  reactive({summary(MonVisit())}) # output$MonVisitSummary end
+  
+  # print out table and summary
+  MonSpendTable<-  reactive(
+    if(input$disp == "head") {
+      return(head(MonSpend()))
+    }
+    else {
+      return(MonSpend())})# output$MonSpend end
+  
+  MonSpendSummary<-  reactive({summary(MonSpend())}) # output$MonSpendSummary end
+  
+   # print out table and summary
+   MonVisit2Table<-  reactive(
+    if(input$disp == "head") {
+      return(head(MonVisit2_data()))
+    }
+    else {
+      return(MonVisit2_data())}) # output$MonVisit end
+  
+   MonVisitSummary2<- reactive({summary(MonVisit2_data())}) # output$MonVisitSummary end
+  
+  # print out table and summary
+  MonSpend2Table<- reactive(
+    if(input$disp == "head") {
+      return(head(MonSpend2_data()))
+    }
+    else {
+      return(MonSpend2_data())})# output$MonSpend end
+  
+  MonSpendSummary2<- reactive({summary(MonSpend2_data())}) # output$MonSpendSummary end
+  
+   # print out table and summary
+  output$file1_contents <- renderDataTable({file1()}) # output$file1_contents end
+  output$file1_Summary<-  renderPrint({summary(file1())}) # output$file1_Summary end
+ 
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________ 
+  output$KPIsAccuracy<- renderPrint({HotelKPIAcc()})
+
+  output$visitAccuracy<- renderText({
+    if(input$model=='Future'){
+      return(paste("Total visitors predictive model's accuracy is ",sprintf("%.1f %%", 100*(1-visitAcc2())), sep=''))}
+    else{
+      return(paste("Total visitors predictive model's accuracy is ",sprintf("%.1f %%", 100*(1-visitAcc())), sep=''))}
+    })
+  
+  output$visitDiff<- renderText({
+    if(input$model=='Future'){
+      return(paste("* Actual visitation data should be +- ", sprintf("%.1f %%", 100*(visitAcc2())), " of final projection", sep=''))}
+    else{
+      return(paste("* Actual visitation data should be +- ", sprintf("%.1f %%", 100*(visitAcc())), " of final projection", sep=''))}
+    })
+  
+    output$spendDiff<- renderText ({
+    if(input$model=='Future'){
+      return(paste("* Actual economic impact data should be +- ", sprintf("%.1f %%", 100*(spendAcc2())), " of final projection", sep=''))}
+    else{
+      return(paste("* Actual economic impact data should be +- ", sprintf("%.1f %%", 100*(spendAcc())), " of final projection", sep=''))}
+    })
+  
+  output$spendAccuracy<- renderText ({
+    if(input$model=='Future'){
+      return(paste("Total economic impact predictive model's accuracy is ",sprintf("%.1f %%", 100*(1-spendAcc2())), sep=''))}
+    else{
+      return(paste("Total economic impact predictive model's accuracy is ",sprintf("%.1f %%", 100*(1-spendAcc())), sep=''))}
+    })
+  
+  output$visitSum<- renderText({
+    if(input$model=='Future'){
+      return(visitSum2())}
+    else{
+      return(visitSum())}
+    })
+  
+  output$spendSum<- renderText({
+    if(input$model=='Future'){
+      return(spendSum2())}
+    else{
+      return(spendSum())}
+    })
+  
+  output$visitTable<-renderDataTable({
+     if(input$model=='Future'){
+      return(MonVisit2Table())}
+    else{
+      return(MonVisitTable())}
+    
+  })
+  
+  output$spendTable<-renderDataTable({
+     if(input$model=='Future'){
+      return(MonSpend2Table())}
+    else{
+      return(MonSpendTable())}
+    
+  })
+  
+   output$visitSummary<- renderPrint({
+    if(input$model=='Future'){
+      return(MonVisitSummary2())}
+    else{
+      return(MonVisitSummary())}
+    })
+  
+   output$spendSummary<- renderPrint({
+    if(input$model=='Future'){
+      return(MonSpendSummary2())}
+    else{
+      return(MonSpendSummary())}
+    })
+  
+  
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+  #______________________________________________________________________________________________________________________________________
+  
+  output$spend<- renderPlot({
+    color = "#434343"
+    par(mar = c(4, 4, 1, 1))
+    if(input$model=='Current'){
+      plot(MonSpend(), type = "o", xlab = "Date", ylab = "Monthly_Spending_in_Billions", 
+         col = color, fg = color, col.lab = color, col.axis = color)
+    
+    if(input$smoother){
+      smooth_curve <- lowess(MonSpend(), f = input$f)
+      lines(smooth_curve, col = "#E6553A", lwd = 3)}
+    }
+    else{
+      plot(MonSpend2_data(), type = "o", xlab = "Date", ylab = "Monthly_Spending_in_Billions", 
+         col = color, fg = color, col.lab = color, col.axis = color)
+    
+    if(input$smoother){
+      smooth_curve <- lowess(MonSpend2_data(), f = input$f)
+      lines(smooth_curve, col = "#E6553A", lwd = 3)}
+    }
+    })
+  
+  output$visit<- renderPlot({
+    color = "#434343"
+    par(mar = c(4, 4, 1, 1))
+    if(input$model=='Current'){
+      plot(MonVisit(), type = "o", xlab = "Date", ylab = "Monthly_Visitation_in_Millions", 
+         col = color, fg = color, col.lab = color, col.axis = color)
+    
+    if(input$smoother){
+      smooth_curve <- lowess(MonVisit(), f = input$f)
+      lines(smooth_curve, col = "#E6553A", lwd = 3)}
+    }
+    else{
+      plot(MonVisit2_data(), type = "o", xlab = "Date", ylab = "Monthly_Visitation_in_Millions", 
+         col = color, fg = color, col.lab = color, col.axis = color)
+    
+    if(input$smoother){
+      smooth_curve <- lowess(MonVisit2_data(), f = input$f)
+      lines(smooth_curve, col = "#E6553A", lwd = 3)}
+    }
+    
+    })
+  
+  output$KPIPlot <- renderPlot({
+    color = "#434343"
+    par(mar = c(4, 4, 1, 1))
+    plot(selected_trends()[,c('Date',input$type)], type = "o",
+         xlab = "Date", ylab = "Trend index", col = color, fg = color, col.lab = color, col.axis = color)
+   
+    if(input$smoother){
+      smooth_curve <- lowess(selected_trends()[,c('Date',input$type)], f = input$f) 
+      lines(smooth_curve, col = "#E6553A", lwd = 3)}
+  }) # output$KPIPlot end
+} # server end
+
+# Create Shiny object
+shinyApp(ui = ui, server = server)
+
+```
